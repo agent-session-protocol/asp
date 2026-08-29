@@ -1,42 +1,44 @@
-# 会话模型与事件（overview）
+# Session Model & Events
 
-## 分层
+> [English](overview.md) · [中文](zh-CN/overview.md)
+
+## Layers
 
 ```
-L0 raw blob 层     content-addressed，保留 harness 原生字节（import 即快照）
-L1 canonical event log  统一 envelope，append-only，唯一持久化真源
-L2 projections    读模型（chat 渲染 / resume-export / 派生索引），可随时重建
+L0 raw blob          content-addressed native bytes (import = snapshot)
+L1 canonical log     unified envelope, append-only, single durable source of truth
+L2 projections       read models (chat render / resume-export / derived indexes), rebuildable
 ```
 
-## 会话层级
+## Session hierarchy
 
 ```
 Session ──1:N──> Run ──1:N──> Turn ──1:N──> Message ──> ordered ContentBlocks
-                         └──> ToolCall / ToolResult（稳定 ID，关联到 run/turn/message）
+                         └──> ToolCall / ToolResult (stable IDs, correlated to run/turn/message)
 ```
 
-- **Session**：一次会话，`nativeSessionId`（harness 原生 id）+ `id`（内容寻址的 canonical id）。
-- **Run**：一次"执行单元"（harness 的 run / turn 边界语义各不相同，见 fidelity）。
-- **Turn**：一轮用户输入 → agent 产出。
-- **Message**：`role ∈ {system, user, assistant, tool, unknown}` + 有序内容块。
-- **Tool**：`tool-call` + `tool-result` 配对，结果存工具实体的 `result`（canonical 表示，与 message 块形状解耦）。
+- **Session**: one conversation; `nativeSessionId` (harness-native) + `id` (content-addressed canonical id).
+- **Run**: an execution unit (harnesses differ in how they delimit run/turn — see fidelity).
+- **Turn**: one user input → agent output.
+- **Message**: `role ∈ {system, user, assistant, tool, unknown}` + ordered content blocks.
+- **Tool**: `tool-call` + `tool-result` pairing; the result lives on the tool entity's `result` (canonical, decoupled from message block shape).
 
 ## Session lineage DAG
 
-session 不是平表。关系类型：
+Sessions are not a flat table. Relation types:
 
 ```
 relation { id, sourceSessionId, targetSessionId, type, typeData, createdAt }
 type ∈ { fork, resume, handoff, subagent, compact }
 ```
 
-- **fork**：同一会话分叉出两条线。
-- **resume**：同一 harness 内继续。
-- **handoff**：跨 harness 导出→导入（**新建 session + handoff relation**，不伪装同一 session）。
-- **subagent**：spawn 自某个 run 的某个 tool call（`typeData{parentRunId, parentToolCallId}`）。
-- **compact**：compaction 产生的旧→新血缘。
+- **fork**: a session branches into two lines.
+- **resume**: continuation within the same harness.
+- **handoff**: export→import across harnesses (creates a **new session + handoff relation**, never masquerades as the same session).
+- **subagent**: spawned from a run's tool call (`typeData{parentRunId, parentToolCallId}`).
+- **compact**: old→new lineage produced by compaction.
 
-## 事件 envelope
+## Event envelope
 
 ```ts
 AgentEventEnvelope {
@@ -48,17 +50,17 @@ AgentEventEnvelope {
 }
 ```
 
-事件类型 27 种：`session.*`（started/ended/bound）、`run.*`（started/settled）、`turn.*`、`message.*`（started/updated/completed）、`tool.*`、`approval.*`、`artifact.observed`、`task.updated`、`action.*`、`capabilities.changed`、`input.observed`、`status.changed`、`unknown.observed`。
+27 event types: `session.*` (started/ended/bound), `run.*` (started/settled), `turn.*`, `message.*` (started/updated/completed), `tool.*`, `approval.*`, `artifact.observed`, `task.updated`, `action.*`, `capabilities.changed`, `input.observed`, `status.changed`, `unknown.observed`.
 
-**关键语义**：
-- `entityRevision` + delta：`message.updated` 只能应用于明确的 entity revision，completed/settled 是 sticky terminal。
-- `authority/confidence`：L1（一手记录）> L2（代理转述）> L3（推断）；赢者决定 canonical payload。
-- `unknown.observed`：不认识的事件原样保留（保真，不丢弃）。
+**Key semantics**:
+- `entityRevision` + deltas: `message.updated` applies only to an explicit entity revision; completed/settled are sticky terminals.
+- `authority/confidence`: L1 (first-hand) > L2 (relayed) > L3 (inferred); the winner determines the canonical payload.
+- `unknown.observed`: unrecognized events are preserved verbatim (never dropped).
 
-## Identity 与幂等
+## Identity & idempotency
 
-- 事件 id 内容寻址（`stableId(sessionId, nativeEventId, type)`）→ 同一来源 re-import 幂等。
-- Session 的 canonical id = `sha256(harness ‖ native_session_id ‖ source_sha256)`（长度前缀，防跨 harness 同 slug 撞 key）。
-- 事件 id 全局幂等：重放/重复 delivery 用 eventId 去重。
+- Event ids are content-addressed (`stableId(sessionId, nativeEventId, type)`) → re-importing the same source is idempotent.
+- Session canonical id = `sha256(harness ‖ native_session_id ‖ source_sha256)` (length-prefixed, to prevent cross-harness same-slug collisions).
+- Event ids are globally idempotent: replays/duplicates are deduplicated by eventId.
 
-详见 `schema/agent-session-contracts.ts`（`validateAgentEnvelope` 是 exact-schema 校验的事实源）。
+See `schema/agent-session-contracts.ts` (`validateAgentEnvelope` is the source of truth for exact-schema validation).

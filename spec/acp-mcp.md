@@ -1,40 +1,42 @@
-# 与 ACP / MCP 的关系
+# Relationship to ACP / MCP
 
-## 定位：三层各司其职
+> [English](acp-mcp.md) · [中文](zh-CN/acp-mcp.md)
 
-| 协议 | 管什么 | 时间轴 | 本质 |
+## Positioning: three layers, three jobs
+
+| protocol | owns | timeline | essence |
 |---|---|---|---|
-| **ACP**（Agent Client Protocol） | 编辑器↔agent 的实时控制（prompt/steer/cancel/permission） | 当下 | wire protocol |
-| **MCP**（Model Context Protocol） | agent↔工具的调用 | 当下 | tool protocol |
-| **ASP**（Agent Session Protocol） | 会话的持久、回放、跨 runtime 迁移 | 历史 | 存储与迁移协议 |
+| **ACP** (Agent Client Protocol) | editor↔agent live control (prompt/steer/cancel/permission) | present | wire protocol |
+| **MCP** (Model Context Protocol) | agent↔tool invocation | present | tool protocol |
+| **ASP** (Agent Session Protocol) | session persistence, replay, cross-runtime migration | past | storage & migration protocol |
 
-**互补不竞争**：ACP 管实时，MCP 管工具，ASP 管会话的持久与迁移。ASP 是 ACP/MCP 生态缺失的那层——"durable back"。
+**Complementary, not competing**: ACP owns the live, MCP owns tools, ASP owns the durable past — the missing "durable back" of the ACP/MCP ecosystem.
 
-## 与 ACP 的关系
+## Relationship to ACP
 
-ACP v2（2026-07-20 draft）的关键设计恰好与 ASP 同构：
+ACP v2 (2026-07-20 draft) happens to be isomorphic with ASP on key points:
 
-- ACP 的"超越 turn + 多 client 观察" ⇄ ASP 的 append-only 事件日志 + snapshot/cursor
-- ACP 的"稳定 ID + patch 语义（省略/null/值/chunk-append）" ⇄ ASP 的 `entityRevision` + delta 合并
-- ACP 的 `Other` 块（"receiver 必须保留原始 payload"）⇄ ASP 的 typed `unknown` block
+- ACP's "beyond the turn + multi-client observation" ⇄ ASP's append-only event log + snapshot/cursor
+- ACP's "stable IDs + patch semantics (omitted/null/value/chunk-append)" ⇄ ASP's `entityRevision` + delta merge
+- ACP's `Other` block ("receivers must preserve raw payload") ⇄ ASP's typed `unknown` block
 
-**集成方向**：
-1. **ACP tap**（写路径）：ASP 实现方充当 ACP client，订阅 `session/update` → 映射成 ASP 事件 → 入存储。这是最优 live capture（harness 中立、语义级、无 FUSE/特权问题）。
-2. **ACP agent 适配器**（读路径）：ASP 实现方充当 ACP agent，把存储的会话经 `session/resume` + `session/update` 重放给编辑器。
+**Integration directions**:
+1. **ACP tap** (write path): an ASP implementation acts as an ACP client, subscribing to `session/update` → mapping to ASP events → storing. This is the best live capture (harness-neutral, semantic, no FUSE/privilege issues).
+2. **ACP agent adapter** (read path): an ASP implementation acts as an ACP agent, replaying stored sessions to an editor via `session/resume` + `session/update`.
 
-**分歧点**：ACP v2 移除了 thinking content block（降级为 `thought_level` 配置 + `thought_tokens` 统计）；ASP 把 thinking（含 signature）当 resume 关键一等块。走 ACP tap 时 thinking 只能进 `Other` 被动保留，是显式的保真度折损点。
+**Divergence**: ACP v2 removed the thinking content block (demoted to `thought_level` config + `thought_tokens`); ASP treats thinking (with signature) as a resume-critical first-class block. Over an ACP tap, thinking can only be passively preserved in an `Other` block — an explicit fidelity trade-off.
 
-## 与 MCP 的关系
+## Relationship to MCP
 
-ACP v2 的 `ContentBlock` 复用 MCP 的 schema（Text/Image/Audio/ResourceLink/Resource/Other）。ASP 的 ContentBlock 命名自成一格（thinking/tool-call/tool-result 是 resume 关键，MCP 没有），映射见下。
+ACP v2's `ContentBlock` reuses MCP's schema (Text/Image/Audio/ResourceLink/Resource/Other). ASP's ContentBlock naming is its own (thinking/tool-call/tool-result are resume-critical, absent from MCP); mapping below.
 
-## 内容块映射
+## Content-block mapping
 
-| ASP ContentBlock | ACP/MCP ContentBlock | 备注 |
+| ASP ContentBlock | ACP/MCP ContentBlock | note |
 |---|---|---|
-| `text` | `Text` | 直映射 |
-| `image` | `Image` / `Audio` | 直映射（audio 用 unknown 或扩展） |
-| `reference` | `ResourceLink` / `Resource` | 直映射 |
-| `unknown` | `Other`（`_` 前缀） | **双方都要求 opaque passthrough，语义一致** |
-| `thinking`(+signature) | （无） | ACP v2 移除，只能进 `Other` |
-| `tool-call`/`tool-result` | `ToolCall*` | 映射到 tool 事件 + 工具实体 |
+| `text` | `Text` | direct |
+| `image` | `Image` / `Audio` | direct (audio via unknown or extension) |
+| `reference` | `ResourceLink` / `Resource` | direct |
+| `unknown` | `Other` (`_`-prefixed) | **both mandate opaque passthrough — semantically identical** |
+| `thinking`(+signature) | (none) | removed in ACP v2; only via `Other` |
+| `tool-call`/`tool-result` | `ToolCall*` | maps to tool events + tool entity |

@@ -1,44 +1,46 @@
-# 保真度矩阵（fidelity）
+# Fidelity Matrix
 
-## 声明式保真，不是承诺式保真
+> [English](fidelity.md) · [中文](zh-CN/fidelity.md)
 
-ASP 的核心立场：**转换保真度是声明出来的，不是打包票的。** 每个 importer/exporter 都要声明每个轴（axis）的保真等级与丢失清单（loss），roundtrip 保证按轴声明。
+## Declared fidelity, not promised fidelity
 
-## 保真等级
+ASP's core stance: **conversion fidelity is declared, not guaranteed.** Every importer/exporter declares, per axis, a fidelity level and a loss list; round-trip guarantees are per-axis.
 
-| level | 含义 |
+## Fidelity levels
+
+| level | meaning |
 |---|---|
-| `preserved` | 往返不丢失 |
-| `partial` | 降级（如合并、重编码） |
-| `evidence-only` | 只留在 evidence，不进 canonical 投影 |
-| `dropped` | 丢弃，且有声明的原因 |
-| `not-in-source` | 源 harness 根本不记录该轴 |
+| `preserved` | survives round-trip |
+| `partial` | degraded (merged, re-encoded) |
+| `evidence-only` | kept in evidence only, not in the canonical projection |
+| `dropped` | dropped, with a declared reason |
+| `not-in-source` | the source harness does not record this axis |
 
-## 实测矩阵（4 harness）
+## Measured matrix (4 harnesses)
 
 | axis | pi | dimagent | claude | codex |
 |---|---|---|---|---|
-| messages/order | preserved | preserved | preserved（block-append journal 合并） | preserved（双流去重） |
+| messages/order | preserved | preserved | preserved (block-append journal merged) | preserved (dual-stream dedup) |
 | content blocks | preserved | preserved | preserved | preserved |
 | tool chain | preserved | preserved | preserved | preserved |
-| thinking | preserved(签名) | partial | preserved(**signature**) | partial(summary→thinking；**encrypted_content→unknown passthrough**) |
-| run/turn 边界 | partial | preserved/partial | partial | preserved(turn_context) |
+| thinking | preserved (signature) | partial | preserved (**signature**) | partial (summary→thinking; **encrypted_content→unknown passthrough**) |
+| run/turn boundaries | partial | preserved/partial | partial | preserved (turn_context) |
 | model/usage | evidence-only | evidence-only | preserved | evidence-only |
 | compaction | n/a | dropped | not-in-source | not-in-source |
 | approvals | not-in-source | not-in-source | not-in-source | not-in-source |
 
 ## Resume-target profiles
 
-handoff 保真 = 导出器知道"目标 harness resume 需要哪些字段"。缺必需字段 → **拒绝导出**（而非静默降级）；非必需 → 声明 loss。
+Handoff fidelity means the exporter knows "which fields the target harness needs to resume". Missing required fields → **refuse to export** (never silently degrade); non-required → declare loss.
 
-| 目标 | resume 必需 |
+| target | resume requirements |
 |---|---|
-| pi | entry 树（id/parentId）+ session header |
-| Claude Code | uuid/parentUuid 链 + thinking signature + tool_use id |
-| Codex | response_item 全序 + encrypted_content + call_id 配对 |
-| opencode | message/part 全集 + git snapshot 引用 |
-| dimagent | parts 全集 + compaction_states 游标 |
+| pi | entry tree (id/parentId) + session header |
+| Claude Code | uuid/parentUuid chain + thinking signature + tool_use id |
+| Codex | full response_item order + encrypted_content + call_id pairing |
+| opencode | full message/part set + git snapshot reference |
+| dimagent | full parts + compaction_states cursor |
 
-## Evidence 层（roundtrip 保真的来源）
+## The evidence layer (source of round-trip fidelity)
 
-bundle 的 `evidence` 是完整有序事件流（WAL 角色），`pivot` 快照永远可从它重放。**roundtrip 保真来自 evidence 层，而非投影层**——exporter 优先用 importer 存下的原生负载（`session_meta`、`turn_context`、reasoning `{summary, encrypted_content}`）逐字还原，缺失才合成。
+A bundle's `evidence` is the full ordered event stream (WAL role); the `pivot` snapshot is always re-derivable from it. **Round-trip fidelity comes from the evidence layer, not the projection** — exporters replay the native payloads recorded by the importer (e.g. `session_meta`, `turn_context`, reasoning `{summary, encrypted_content}`) verbatim, and only synthesize when absent.

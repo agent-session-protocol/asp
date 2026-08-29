@@ -1,40 +1,42 @@
-# 内容块与不透明负载
+# Content Blocks & Opaque Payloads
 
-## ContentBlock 类型
+> [English](content-blocks.md) · [中文](zh-CN/content-blocks.md)
+
+## ContentBlock types
 
 ```ts
 ContentBlock =
   | { type: "text"; text }
-  | { type: "thinking"; text; signature? }        // resume 关键：signature 需原样往返
+  | { type: "thinking"; text; signature? }        // resume-critical: signature must round-trip
   | { type: "tool-call"; toolCallId; name; arguments }
   | { type: "tool-result"; toolCallId; toolResultId; content; isError }
   | { type: "image"; mimeType; data?; uri?; alt? }
   | { type: "reference"; uri; title?; mediaType? }
   | { type: "error"; message; code?; detail? }
-  | { type: "unknown"; nativeType; value }        // 不透明负载容器
+  | { type: "unknown"; nativeType; value }        // opaque-payload container
 ```
 
-## 不透明负载（opaque passthrough）——一等公民
+## Opaque passthrough — a first-class citizen
 
-agent 生态里有大量**不可解析但必须原样往返**的字节：
+Agent ecosystems contain plenty of bytes that cannot be parsed but must round-trip verbatim:
 
-- claude 的 thinking `signature`（Anthropic API 侧 resume 校验必需）
-- codex 的 reasoning `encrypted_content`（OpenAI 服务端校验链，~1KB blob）
+- Claude's thinking `signature` (required by the Anthropic API on resume)
+- Codex's reasoning `encrypted_content` (OpenAI's server-side verification chain, ~1KB blob)
 
-这类负载若被 normalize 即丢失 resume 能力。ASP 的规则：
+Normalizing such payloads destroys resume capability. ASP's rules:
 
-1. **typed `unknown` block 承载**：`{ type: "unknown", nativeType, value }`，`nativeType` 标注来源（如 `codex.encrypted_reasoning`）。
-2. **canonical→native→canonical 必须幂等**：任何 importer/exporter 重编码路径都**不得二次包裹** `unknown` block——否则 `nativeType` 被覆盖为 `"unknown"`，负载丢失。
+1. **Carry them in a typed `unknown` block**: `{ type: "unknown", nativeType, value }`, where `nativeType` names the source (e.g. `codex.encrypted_reasoning`).
+2. **canonical→native→canonical must be idempotent**: no importer/exporter re-encoding path may double-wrap an `unknown` block — otherwise `nativeType` is clobbered to `"unknown"` and the payload is lost.
 
-> 实测教训：e-core 的 `normalizeContent` 与 pi 的 importer/exporter 都曾二次包裹 canonical `unknown` block，导致 codex `encrypted_content` 经 pi 一趟丢 `nativeType`。三处已修，规则固化进 schema 校验。
+> Field lesson: e-core's `normalizeContent` and pi's importer/exporter both double-wrapped canonical `unknown` blocks, dropping Codex's `encrypted_content` `nativeType` on a pi round-trip. All three were fixed; the rule is now baked into schema validation.
 
-## 与 MCP/ACP 的差异
+## Divergence from MCP / ACP
 
 | ASP | MCP / ACP |
 |---|---|
-| `thinking`（含 signature）是一等块 | ACP v2 把 thinking 降级为 config + 统计，无常设块 |
-| `unknown` 是保真容器（resume 关键） | `Other` 块（`_` 前缀）保留原始 payload，语义一致 |
+| `thinking` (with signature) is a first-class block | ACP v2 demotes thinking to config + stats; no dedicated block |
+| `unknown` is a fidelity container (resume-critical) | `Other` block (`_`-prefixed) preserves raw payload — semantically identical |
 
-## tool result 的 canonical 表示
+## Canonical representation of tool results
 
-`tool-result` 的内容同时存在于**工具实体 `result`** 与 message 块。规则：**工具结果一律以工具实体的 `result` 为准**（canonical 表示，与 message 块形状解耦）——因为不同 harness 对 tool result 的块形状不一致（pi 用 `[text]` 块，codex 用 `[tool-result]` 块），exporter 必须从工具实体取，不能依赖 message 块形状。
+Tool-result content exists both on the **tool entity's `result`** and in message blocks. Rule: **the tool entity's `result` is authoritative** (canonical, decoupled from message block shape) — harnesses disagree on the block shape for tool results (pi uses `[text]`, Codex uses `[tool-result]`), so exporters must read from the tool entity, never from the message blocks.
