@@ -1,0 +1,12 @@
+{
+  "name": "@agent-session-protocol/asp",
+  "private": true,
+  "description": "Agent Session Protocol — canonical session schema (TS reference)",
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
